@@ -111,6 +111,9 @@ export default class ReadingProgressPlugin extends Plugin {
 	}
 
 	async onFileOpen(file: TFile | null) {
+		// Clean up tracking for previous file
+		this.cleanupScrollTracking();
+
 		if (!file) return;
 
 		this.log('File opened:', file.path);
@@ -222,6 +225,13 @@ export default class ReadingProgressPlugin extends Plugin {
 	async saveScrollPosition(file: TFile) {
 		if (this.isRestoring) {
 			this.log('Currently restoring, skipping save');
+			return;
+		}
+
+		// Validate that this file is still the active file
+		const activeFile = this.app.workspace.getActiveFile();
+		if (!activeFile || activeFile.path !== file.path) {
+			this.log('File is no longer active, skipping save for:', file.path, '(active:', activeFile?.path, ')');
 			return;
 		}
 
