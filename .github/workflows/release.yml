@@ -1,0 +1,78 @@
+name: Release Obsidian plugin
+
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18.x"
+
+      - name: Update manifest, versions, and package.json with tag version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          # Extract version from tag (e.g., "1.1.1" from tag "1.1.1")
+          VERSION="$TAG_NAME"
+
+          # Get minimum Obsidian version from current manifest
+          MIN_APP_VERSION=$(node -p "require('./manifest.json').minAppVersion")
+
+          # Update manifest.json version
+          node -e "
+            const fs = require('fs');
+            const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+            manifest.version = '$VERSION';
+            fs.writeFileSync('manifest.json', JSON.stringify(manifest, null, 2) + '\n');
+          "
+
+          # Update package.json version
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '$VERSION';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+          # Update versions.json
+          node -e "
+            const fs = require('fs');
+            let versions = {};
+            try {
+              versions = JSON.parse(fs.readFileSync('versions.json', 'utf8'));
+            } catch (e) {
+              // File doesn't exist or is invalid, start fresh
+            }
+            versions['$VERSION'] = '$MIN_APP_VERSION';
+            fs.writeFileSync('versions.json', JSON.stringify(versions, null, 2) + '\n');
+          "
+
+          echo "Updated manifest.json, package.json, and versions.json to version $VERSION"
+
+      - name: Build plugin
+        run: |
+          npm install
+          npm run build
+
+      - name: Create release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG_NAME" \
+            --title="$TAG_NAME" \
+            --draft=false \
+            --generate-notes \
+            main.js manifest.json versions.json
