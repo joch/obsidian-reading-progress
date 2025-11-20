@@ -1,7 +1,7 @@
 {
 	"id": "reading-progress",
 	"name": "Reading Progress",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"minAppVersion": "0.15.0",
 	"description": "Track and restore reading position in notes. Saves scroll position to frontmatter.",
 	"author": "Johnny Chadda",
