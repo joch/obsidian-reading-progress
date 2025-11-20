@@ -265,6 +265,17 @@ export default class ReadingProgressPlugin extends Plugin {
 			return; // Position hasn't changed enough
 		}
 
+		// Safety check: Prevent overwriting significant progress with 0%
+		// This protects against race conditions where document is at top during restoration
+		if (scrollPosition < 0.05) { // Less than 5%
+			const cache = this.app.metadataCache.getFileCache(file);
+			const savedProgress = cache?.frontmatter?.reading_progress;
+			if (savedProgress !== undefined && savedProgress > 0.05) {
+				this.log('Preventing destructive save: current position', scrollPosition, 'would overwrite saved progress', savedProgress);
+				return;
+			}
+		}
+
 		this.log('Saving scroll position:', scrollPosition, 'for:', file.path);
 
 		try {
@@ -290,7 +301,7 @@ export default class ReadingProgressPlugin extends Plugin {
 
 		// Validate that savedProgress is a reasonable percentage (0-1)
 		if (savedProgress < 0 || savedProgress > 1) {
-			this.log('Invalid saved progress value:', savedProgress, '- resetting to 0');
+			this.log('Invalid saved progress value:', savedProgress, '- skipping restoration');
 			return;
 		}
 
@@ -306,13 +317,24 @@ export default class ReadingProgressPlugin extends Plugin {
 		this.isRestoring = true;
 
 		// Add delay to prevent conflicts with anchor navigation and allow view to fully render
-		setTimeout(() => {
+		// Increased from 150ms to 500ms to give large documents more time to render
+		const attemptRestore = (attemptNumber: number, maxAttempts: number) => {
 			try {
 				const scrollEl = this.getScrollElement(view);
 				if (!scrollEl || scrollEl.scrollHeight === 0) {
-					this.log('No scroll element for restoration');
-					this.isRestoring = false;
-					return;
+					// Document not ready yet - retry if we have attempts left
+					if (attemptNumber < maxAttempts) {
+						this.log(`Scroll element not ready (attempt ${attemptNumber}/${maxAttempts}), retrying in 200ms...`);
+						setTimeout(() => attemptRestore(attemptNumber + 1, maxAttempts), 200);
+						return;
+					} else {
+						this.log('No scroll element for restoration after all retries - giving up');
+						// Keep isRestoring flag active for longer to prevent premature saves
+						setTimeout(() => {
+							this.isRestoring = false;
+						}, 2000);
+						return;
+					}
 				}
 
 				const maxScroll = scrollEl.scrollHeight - scrollEl.clientHeight;
@@ -330,16 +352,20 @@ export default class ReadingProgressPlugin extends Plugin {
 					new Notice(`📖 Restored to ${percentage}% of document`);
 				}
 
-				// Clear restoration flag after a delay
+				// Clear restoration flag after a longer delay to ensure document is stable
+				// Increased from 300ms to 1000ms
 				setTimeout(() => {
 					this.isRestoring = false;
 					this.log('Restoration complete, tracking enabled');
-				}, 300);
+				}, 1000);
 			} catch (error) {
 				console.error('Failed to restore reading progress:', error);
 				this.isRestoring = false;
 			}
-		}, 150);
+		};
+
+		// Start restoration attempt with initial 500ms delay and up to 3 retries
+		setTimeout(() => attemptRestore(1, 3), 500);
 	}
 
 	shouldTrackFile(file: TFile): boolean {
