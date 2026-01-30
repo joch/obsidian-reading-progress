@@ -27,7 +27,7 @@ const DEFAULT_SETTINGS: ReadingProgressSettings = {
  * Debounce function - only executes after the specified delay of inactivity
  * Waits until user stops scrolling before saving (reduces writes)
  */
-function debounce<T extends (...args: any[]) => any>(
+function debounce<T extends (...args: unknown[]) => unknown>(
 	func: T,
 	delay: number
 ): (...args: Parameters<T>) => void {
@@ -62,7 +62,7 @@ export default class ReadingProgressPlugin extends Plugin {
 		// Register file open event - restore position when file opens
 		this.registerEvent(
 			this.app.workspace.on('file-open', (file) => {
-				this.onFileOpen(file);
+				void this.onFileOpen(file);
 			})
 		);
 
@@ -104,9 +104,9 @@ export default class ReadingProgressPlugin extends Plugin {
 		this.log('Reading Progress plugin unloaded');
 	}
 
-	private log(message: string, ...args: any[]) {
+	private log(message: string, ...args: unknown[]) {
 		if (this.settings.showDebugLogs) {
-			console.log(`[Reading Progress] ${message}`, ...args);
+			console.debug(`[Reading Progress] ${message}`, ...args);
 		}
 	}
 
@@ -154,7 +154,7 @@ export default class ReadingProgressPlugin extends Plugin {
 
 		// Create debounced scroll handler
 		const handler = debounce(() => {
-			this.saveScrollPosition(file);
+			void this.saveScrollPosition(file);
 		}, this.settings.saveInterval);
 
 		// Register scroll listener manually (so we can properly remove it)
@@ -269,7 +269,7 @@ export default class ReadingProgressPlugin extends Plugin {
 		// This protects against race conditions where document is at top during restoration
 		if (scrollPosition < 0.05) { // Less than 5%
 			const cache = this.app.metadataCache.getFileCache(file);
-			const savedProgress = cache?.frontmatter?.reading_progress;
+			const savedProgress = cache?.frontmatter?.reading_progress as number | undefined;
 			if (savedProgress !== undefined && savedProgress > 0.05) {
 				this.log('Preventing destructive save: current position', scrollPosition, 'would overwrite saved progress', savedProgress);
 				return;
@@ -279,7 +279,7 @@ export default class ReadingProgressPlugin extends Plugin {
 		this.log('Saving scroll position:', scrollPosition, 'for:', file.path);
 
 		try {
-			await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+			await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
 				frontmatter.reading_progress = scrollPosition;
 			});
 
@@ -292,16 +292,18 @@ export default class ReadingProgressPlugin extends Plugin {
 
 	async restoreScrollPosition(file: TFile, showNoticeAlways: boolean) {
 		const cache = this.app.metadataCache.getFileCache(file);
-		const savedProgress = cache?.frontmatter?.reading_progress;
+		const savedProgressRaw: unknown = cache?.frontmatter?.reading_progress;
 
-		if (savedProgress === undefined || savedProgress === null) {
+		if (savedProgressRaw === undefined || savedProgressRaw === null) {
 			this.log('No saved progress found for:', file.path);
 			return;
 		}
 
+		const savedProgress = Number(savedProgressRaw);
+
 		// Validate that savedProgress is a reasonable percentage (0-1)
-		if (savedProgress < 0 || savedProgress > 1) {
-			this.log('Invalid saved progress value:', savedProgress, '- skipping restoration');
+		if (isNaN(savedProgress) || savedProgress < 0 || savedProgress > 1) {
+			this.log('Invalid saved progress value:', savedProgressRaw, '- skipping restoration');
 			return;
 		}
 
@@ -398,7 +400,7 @@ export default class ReadingProgressPlugin extends Plugin {
 		// Check frontmatter filters
 		if (this.settings.frontmatterFilters.length > 0) {
 			const matchesFrontmatter = this.settings.frontmatterFilters.some(filter => {
-				const value = cache?.frontmatter?.[filter.key];
+				const value: unknown = cache?.frontmatter?.[filter.key];
 				const matches = String(value) === filter.value;
 				if (matches) {
 					this.log('File matches frontmatter filter:', filter.key, '=', filter.value);
@@ -414,19 +416,21 @@ export default class ReadingProgressPlugin extends Plugin {
 		// Check tag filters
 		if (this.settings.tagFilters.length > 0) {
 			// Get frontmatter tags
-			const frontmatterTags = cache?.frontmatter?.tags || [];
-			const frontmatterTagsArray = Array.isArray(frontmatterTags) ? frontmatterTags : [frontmatterTags];
+			const frontmatterTags: unknown = cache?.frontmatter?.tags ?? [];
+			const frontmatterTagsArray: string[] = Array.isArray(frontmatterTags)
+				? frontmatterTags.map(t => String(t))
+				: [String(frontmatterTags)];
 
 			// Get inline tags from content
-			const inlineTags = cache?.tags?.map(t => t.tag) || [];
+			const inlineTags: string[] = cache?.tags?.map(t => t.tag) ?? [];
 
 			// Combine all tags
-			const allTags = [...frontmatterTagsArray, ...inlineTags];
+			const allTags: string[] = [...frontmatterTagsArray, ...inlineTags];
 
 			const matchesTag = this.settings.tagFilters.some(filterTag => {
 				const normalizedFilterTag = filterTag.trim().startsWith('#') ? filterTag.trim() : '#' + filterTag.trim();
 				const matches = allTags.some(tag => {
-					const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+					const normalizedTag = String(tag).startsWith('#') ? String(tag) : '#' + String(tag);
 					return normalizedTag === normalizedFilterTag;
 				});
 				if (matches) {
@@ -444,7 +448,7 @@ export default class ReadingProgressPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<ReadingProgressSettings>);
 	}
 
 	async saveSettings() {
@@ -465,7 +469,7 @@ class ReadingProgressSettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
-		containerEl.createEl('h2', { text: 'Reading Progress Settings' });
+		new Setting(containerEl).setName('File filters').setHeading();
 
 		containerEl.createEl('p', {
 			text: 'Configure which files should track reading progress. Files must match at least one filter to be tracked.',
@@ -477,10 +481,9 @@ class ReadingProgressSettingTab extends PluginSettingTab {
 			.setName('Enabled paths')
 			.setDesc('Track files in these folders (comma-separated). Example: books/,articles/,notes/')
 			.addTextArea(text => {
-				text.inputEl.style.width = '100%';
-				text.inputEl.style.minHeight = '60px';
+				text.inputEl.addClass('reading-progress-textarea');
 				text
-					.setPlaceholder('books/,articles/')
+					.setPlaceholder('Enter folder paths')
 					.setValue(this.plugin.settings.enabledPaths.join(',\n'))
 					.onChange(async (value) => {
 						this.plugin.settings.enabledPaths = value
@@ -492,22 +495,21 @@ class ReadingProgressSettingTab extends PluginSettingTab {
 			});
 
 		// Frontmatter filters
-		containerEl.createEl('h3', { text: 'Frontmatter Filters' });
+		new Setting(containerEl).setName('Frontmatter filters').setHeading();
 		containerEl.createEl('p', {
 			text: 'Track files with specific frontmatter values. Add one filter per line in format: key=value',
 			cls: 'setting-item-description'
 		});
 
 		new Setting(containerEl)
-			.setName('Frontmatter filters')
+			.setName('Filter rules')
 			.setDesc('Example: type=reading or status=in-progress (one per line)')
 			.addTextArea(text => {
-				text.inputEl.style.width = '100%';
-				text.inputEl.style.minHeight = '80px';
+				text.inputEl.addClass('reading-progress-textarea-tall');
 				const filterStrings = this.plugin.settings.frontmatterFilters
 					.map(f => `${f.key}=${f.value}`);
 				text
-					.setPlaceholder('type=reading\nstatus=in-progress')
+					.setPlaceholder('Enter filters')
 					.setValue(filterStrings.join('\n'))
 					.onChange(async (value) => {
 						this.plugin.settings.frontmatterFilters = value
@@ -528,12 +530,11 @@ class ReadingProgressSettingTab extends PluginSettingTab {
 		// Tag filters
 		new Setting(containerEl)
 			.setName('Tag filters')
-			.setDesc('Track files with these tags (comma-separated). Example: #reading,#book,#article')
+			.setDesc('Track files with these tags (comma-separated). Example: #reading, #book, #article')
 			.addTextArea(text => {
-				text.inputEl.style.width = '100%';
-				text.inputEl.style.minHeight = '60px';
+				text.inputEl.addClass('reading-progress-textarea');
 				text
-					.setPlaceholder('#reading,#book,#article')
+					.setPlaceholder('#reading, #book')
 					.setValue(this.plugin.settings.tagFilters.join(',\n'))
 					.onChange(async (value) => {
 						this.plugin.settings.tagFilters = value
@@ -545,7 +546,7 @@ class ReadingProgressSettingTab extends PluginSettingTab {
 			});
 
 		// Behavior settings
-		containerEl.createEl('h3', { text: 'Behavior' });
+		new Setting(containerEl).setName('Behavior').setHeading();
 
 		new Setting(containerEl)
 			.setName('Save delay')
@@ -580,7 +581,7 @@ class ReadingProgressSettingTab extends PluginSettingTab {
 				}));
 
 		// Status info
-		containerEl.createEl('h3', { text: 'Status' });
+		new Setting(containerEl).setName('Status').setHeading();
 		const statusDiv = containerEl.createEl('div', { cls: 'setting-item-description' });
 		statusDiv.createEl('p', { text: `Platform: ${Platform.isDesktopApp ? 'Desktop' : 'Mobile'}` });
 		statusDiv.createEl('p', { text: `Active filters: ${this.getActiveFiltersCount()}` });

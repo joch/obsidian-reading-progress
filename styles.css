@@ -1,8 +1,11 @@
-/*
+/* Reading Progress plugin styles */
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.reading-progress-textarea {
+	width: 100%;
+	min-height: 60px;
+}
 
-If your plugin does not need CSS, delete this file.
-
-*/
+.reading-progress-textarea-tall {
+	width: 100%;
+	min-height: 80px;
+}
