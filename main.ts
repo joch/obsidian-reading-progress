@@ -93,7 +93,7 @@ export default class ReadingProgressPlugin extends Plugin {
 			callback: async () => {
 				const file = this.app.workspace.getActiveFile();
 				if (file) {
-					await this.restoreScrollPosition(file, true);
+					this.restoreScrollPosition(file, true);
 				}
 			}
 		});
@@ -126,7 +126,7 @@ export default class ReadingProgressPlugin extends Plugin {
 		this.log('File matches filters, setting up tracking:', file.path);
 
 		// Restore scroll position
-		await this.restoreScrollPosition(file, false);
+		this.restoreScrollPosition(file, false);
 
 		// Set up scroll tracking
 		this.setupScrollTracking(file);
@@ -290,7 +290,7 @@ export default class ReadingProgressPlugin extends Plugin {
 		}
 	}
 
-	async restoreScrollPosition(file: TFile, showNoticeAlways: boolean) {
+	restoreScrollPosition(file: TFile, showNoticeAlways: boolean): void {
 		const cache = this.app.metadataCache.getFileCache(file);
 		const savedProgressRaw: unknown = cache?.frontmatter?.reading_progress;
 
