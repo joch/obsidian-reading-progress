@@ -90,7 +90,7 @@ export default class ReadingProgressPlugin extends Plugin {
 		this.addCommand({
 			id: 'restore-reading-position',
 			name: 'Restore reading position',
-			callback: async () => {
+			callback: () => {
 				const file = this.app.workspace.getActiveFile();
 				if (file) {
 					this.restoreScrollPosition(file, true);
@@ -110,7 +110,7 @@ export default class ReadingProgressPlugin extends Plugin {
 		}
 	}
 
-	async onFileOpen(file: TFile | null) {
+	onFileOpen(file: TFile | null): void {
 		// Clean up tracking for previous file
 		this.cleanupScrollTracking();
 
